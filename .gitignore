@@ -1,0 +1,4 @@
+build/
+.workbuddy/
+.DS_Store
+*.xcodeproj
