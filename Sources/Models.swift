@@ -45,6 +45,10 @@ enum WatchStatus: String, CaseIterable, Codable, Identifiable, Hashable {
 struct Anime: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
 
+    /// 关联的 Bangumi subject id，0 表示未关联。
+    /// 用于从本地记录反查 Bangumi 详情（评分、放送信息等）。
+    var bangumiID: Int = 0
+
     var title: String = ""
     /// 日文原名
     var originalTitle: String = ""

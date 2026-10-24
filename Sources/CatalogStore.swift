@@ -19,6 +19,30 @@ struct CatalogEntry: Identifiable, Codable, Hashable {
     /// 热度（收藏数），用于「热门」排序
     var rank: Int
 
+    /// Bangumi 用户均分（0-10，一位小数），0 表示暂无评分
+    var rating: Double = 0
+    /// 评分人数，0 表示暂无
+    var ratingCount: Int = 0
+    /// 放送星期 1-7（1=周一 … 7=周日），0 表示未知
+    var airWeekday: Int = 0
+    /// 放送状态：1 在播 / 2 完结 / 3 未定档（Bangumi 原始值），0 表示未知
+    var airStatus: Int = 0
+
+    var weekdayText: String {
+        let names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        guard airWeekday >= 1 && airWeekday <= 7 else { return "" }
+        return names[airWeekday]
+    }
+
+    var airStatusText: String {
+        switch airStatus {
+        case 1: return "在播"
+        case 2: return "已完结"
+        case 3: return "未定档"
+        default: return ""
+        }
+    }
+
     var year: Int {
         Int(airDate.prefix(4)) ?? 0
     }
@@ -44,6 +68,7 @@ struct CatalogEntry: Identifiable, Codable, Hashable {
     /// 转成本地记录
     func makeRecord(status: WatchStatus) -> Anime {
         var a = Anime()
+        a.bangumiID = id
         a.title = displayTitle
         a.originalTitle = originalTitle
         a.summary = summary
@@ -358,5 +383,40 @@ final class CatalogStore: ObservableObject {
         // 值 0 表示记录本里有但目录里还没这条，负数同理，都不算已关联
         guard let id = libraryKeys[key], id > 0 else { return }
         watchedIDs.insert(id)
+    }
+
+    /// 用拉取到的详情回写目录条目（评分/星期/放送状态），并落盘。
+    /// 返回是否有字段发生变更。
+    @discardableResult
+    func enrich(entryID: Int, detail: CatalogSync.Detail) -> Bool {
+        guard let idx = entries.firstIndex(where: { $0.id == entryID }) else { return false }
+        var changed = false
+
+        if detail.rating > 0, entries[idx].rating == 0 {
+            entries[idx].rating = detail.rating
+            changed = true
+        }
+        if detail.ratingCount > 0, entries[idx].ratingCount == 0 {
+            entries[idx].ratingCount = detail.ratingCount
+            changed = true
+        }
+        if detail.airWeekday > 0, entries[idx].airWeekday == 0 {
+            entries[idx].airWeekday = detail.airWeekday
+            changed = true
+        }
+        if detail.airStatus > 0, entries[idx].airStatus == 0 {
+            entries[idx].airStatus = detail.airStatus
+            changed = true
+        }
+        if detail.totalEpisodes > 0, entries[idx].totalEpisodes == 0 {
+            entries[idx].totalEpisodes = detail.totalEpisodes
+            changed = true
+        }
+
+        if changed {
+            save()
+            objectWillChange.send()
+        }
+        return changed
     }
 }

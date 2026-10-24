@@ -53,6 +53,117 @@ enum CatalogSync {
         return result
     }
 
+    // MARK: - 详情
+
+    /// 详情响应里的评分结构
+    private struct Rating: Decodable {
+        var score: Double?
+        var total: Int?
+    }
+
+    /// 拉取单条番剧详情（评分、放送星期、放送状态、分集等）。
+    /// 免费 API 无鉴权，直接 GET /v0/subjects/{id}。失败返回 nil，绝不抛出。
+    static func fetchDetail(subjectID: Int) async -> Detail? {
+        guard subjectID > 0,
+              let url = URL(string: "https://api.bgm.tv/v0/subjects/\(subjectID)") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("AnimeTracker/1.0 (macOS local tracker)", forHTTPHeaderField: "User-Agent")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let raw = try? JSONDecoder().decode(DetailRaw.self, from: data) else { return nil }
+
+        // 放送星期与放送状态在 v0 API 里没有独立字段，藏在 infobox 中：
+        //   「放送星期」→ "星期五"；「播放结束」存在 → 已完结。
+        let infobox = raw.infobox ?? []
+        var weekday = 0
+        var status = 0
+        for box in infobox {
+            if box.key == "放送星期", let v = box.valueText {
+                weekday = Self.weekday(from: v)
+            } else if box.key == "播放结束" {
+                status = 2
+            }
+        }
+        if status == 0, raw.date != nil {
+            // 有首播日期但无「播放结束」→ 在播（或未完结）
+            status = 1
+        }
+
+        return Detail(
+            rating: raw.rating?.score ?? 0,
+            ratingCount: raw.rating?.total ?? 0,
+            airWeekday: weekday,
+            airStatus: status,
+            totalEpisodes: raw.eps ?? 0
+        )
+    }
+
+    /// 从「星期五」这类中文映射到 1-7（1=周一）
+    private static func weekday(from text: String) -> Int {
+        let map: [String: Int] = [
+            "周一": 1, "星期二": 2, "周二": 2, "星期三": 3, "周三": 3,
+            "星期四": 4, "周四": 4, "星期五": 5, "周五": 5,
+            "星期六": 6, "周六": 6, "星期日": 7, "周日": 7, "星期天": 7
+        ]
+        for (key, value) in map where text.contains(key) {
+            return value
+        }
+        return 0
+    }
+
+    /// 供调用方直接消费的结构化详情
+    struct Detail {
+        var rating: Double
+        var ratingCount: Int
+        var airWeekday: Int
+        var airStatus: Int
+        var totalEpisodes: Int
+    }
+
+    private struct DetailRaw: Decodable {
+        var rating: Rating?
+        var eps: Int?
+        var date: String?
+        var infobox: [InfoboxItem]?
+
+        struct InfoboxItem: Decodable {
+            var key: String
+            var value: StringOrList?
+
+            /// infobox 的 value 可能是字符串，也可能是 [{v: ...}] 数组
+            var valueText: String? {
+                if let s = value?.text { return s }
+                return nil
+            }
+        }
+
+        enum StringOrList: Decodable {
+            case string(String)
+            case list([SubValue])
+
+            struct SubValue: Decodable { var v: String? }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.singleValueContainer()
+                if let s = try? c.decode(String.self) {
+                    self = .string(s)
+                } else {
+                    self = .list(try c.decode([SubValue].self))
+                }
+            }
+
+            var text: String? {
+                switch self {
+                case .string(let s): return s
+                case .list(let arr): return arr.first?.v
+                }
+            }
+        }
+    }
+
     // MARK: - 解码
 
     private struct Page: Decodable {
@@ -68,6 +179,7 @@ enum CatalogSync {
         var eps: Int?
         var images: Images?
         var meta_tags: [String]?
+        var rating: Rating?
 
         struct Images: Decodable {
             var large: String?
@@ -110,7 +222,9 @@ enum CatalogSync {
                 airDate: item.date ?? "",
                 totalEpisodes: item.eps ?? 0,
                 genres: genres,
-                rank: 0
+                rank: 0,
+                rating: item.rating?.score ?? 0,
+                ratingCount: item.rating?.total ?? 0
             ))
         }
         return out

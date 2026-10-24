@@ -478,6 +478,25 @@ struct CatalogCardView: View {
                     }
                     Spacer(minLength: 0)
                 }
+
+                if entry.rating > 0 || !entry.airStatusText.isEmpty {
+                    HStack(spacing: 4) {
+                        if entry.rating > 0 {
+                            Label(String(format: "%.1f", entry.rating), systemImage: "star.fill")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.orange)
+                        }
+                        if !entry.airStatusText.isEmpty {
+                            Text(entry.airStatusText)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background { Capsule().fill(.primary.opacity(0.06)) }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
             }
             .frame(width: coverWidth, alignment: .leading)
         }
@@ -553,11 +572,49 @@ struct CatalogDetailSheet: View {
     @LocalState private var showingEditor = false
     @FocusState private var notesFocused: Bool
 
+    /// 拉取到的完整详情（评分/星期/放送状态），未拉取时为 nil。
+    /// 打开弹窗时按需异步拉取，不阻塞现有字段展示。
+    @LocalState private var detail: CatalogSync.Detail?
+    @LocalState private var detailLoaded = false
+
     /// 记录本里对应的本地记录（已标记过时存在）
     private var record: Anime? {
         library.library.first {
             $0.displayTitle == entry.displayTitle && $0.totalEpisodes == entry.totalEpisodes
         }
+    }
+
+    /// 放送星期：优先用拉取到的详情，其次用目录已有值
+    private var weekdayText: String {
+        if let d = detail, d.airWeekday > 0 {
+            let names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+            return names[d.airWeekday]
+        }
+        return entry.weekdayText
+    }
+
+    /// 放送状态：优先用拉取到的详情，其次用目录已有值
+    private var airStatusText: String {
+        if let d = detail {
+            switch d.airStatus {
+            case 1: return "在播"
+            case 2: return "已完结"
+            case 3: return "未定档"
+            default: break
+            }
+        }
+        return entry.airStatusText
+    }
+
+    /// Bangumi 均分：优先详情，其次目录
+    private var communityRating: Double {
+        if let d = detail, d.rating > 0 { return d.rating }
+        return entry.rating
+    }
+
+    private var communityRatingCount: Int {
+        if let d = detail, d.ratingCount > 0 { return d.ratingCount }
+        return entry.ratingCount
     }
 
     private var isInLibrary: Bool { record != nil }
@@ -585,6 +642,21 @@ struct CatalogDetailSheet: View {
         .sheet(isPresented: $showingEditor) {
             AnimeEditorView(store: library, existing: record)
         }
+        .task {
+            await loadDetail()
+        }
+    }
+
+    /// 拉取 Bangumi 详情补充评分/星期/放送状态。已有数据时不重复请求。
+    private func loadDetail() async {
+        guard !detailLoaded, entry.id > 0 else { return }
+        detailLoaded = true
+        // 优先用目录里已有的值，缺失时才联网补齐
+        if entry.rating > 0, entry.airStatus > 0 { return }
+        guard let d = await CatalogSync.fetchDetail(subjectID: entry.id) else { return }
+        detail = d
+        // 回写目录，让评分/放送信息持久化，下次无需重新联网
+        catalog.enrich(entryID: entry.id, detail: d)
     }
 
     // MARK: 头部
@@ -620,6 +692,8 @@ struct CatalogDetailSheet: View {
                 HStack(spacing: 4) {
                     if !entry.airDate.isEmpty { pill(entry.airDate, "calendar") }
                     if entry.totalEpisodes > 0 { pill("\(entry.totalEpisodes) 集", "film") }
+                    if !weekdayText.isEmpty { pill(weekdayText, "calendar.badge.clock") }
+                    if !airStatusText.isEmpty { pill(airStatusText, "circle.inset.filled") }
                     if isInLibrary { pill("已记录", "checkmark.circle") }
                 }
 
@@ -639,11 +713,11 @@ struct CatalogDetailSheet: View {
         .padding(LiquidGlass.Space.lg)
     }
 
-    /// 题材标签 + 星级评分。标签占据剩余宽度，评分固定在右侧同一行。
-    /// 未加入记录本时不给评分入口，避免摆一排点不动的星星。
+    /// 题材标签 + 社区评分 + 我的评分。
+    /// 标签占据剩余宽度，评分固定在右侧同一行。
     @ViewBuilder
     private var metaRow: some View {
-        if !entry.genres.isEmpty || isInLibrary {
+        if !entry.genres.isEmpty || communityRating > 0 || isInLibrary {
             HStack(alignment: .center, spacing: LiquidGlass.Space.md) {
                 if !entry.genres.isEmpty {
                     FlowLayout(spacing: 5) {
@@ -659,9 +733,32 @@ struct CatalogDetailSheet: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if communityRating > 0 {
+                    communityRatingBadge
+                }
                 if isInLibrary { scoreStars }
             }
         }
+    }
+
+    /// Bangumi 社区评分：橙色星 + 均分 + 人数
+    private var communityRatingBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "star.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.orange)
+            Text(String(format: "%.1f", communityRating))
+                .font(.system(size: 13, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+            if communityRatingCount > 0 {
+                Text("(\(communityRatingCount))")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .help("Bangumi 用户均分")
     }
 
     private func tagChip(_ text: String) -> some View {

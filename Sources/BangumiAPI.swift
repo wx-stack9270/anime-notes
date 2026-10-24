@@ -16,6 +16,7 @@ struct BangumiAPI {
         /// 转成本地记录，状态由调用方决定
         func makeAnime(status: WatchStatus) -> Anime {
             var a = Anime()
+            a.bangumiID = id
             a.title = title
             a.originalTitle = originalTitle
             a.summary = summary
