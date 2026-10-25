@@ -74,6 +74,49 @@ struct Anime: Identifiable, Codable, Hashable {
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
 
+    // 自定义解码：所有字段用 decodeIfPresent，缺键时回落到默认值。
+    // 合成 Codable 对「有默认值的非可选字段」仍要求键必须存在，
+    // 旧版本数据缺少新增字段（如 bangumiID）会导致整库解码失败、被误判损坏。
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        bangumiID     = try c.decodeIfPresent(Int.self, forKey: .bangumiID) ?? 0
+        title         = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        originalTitle = try c.decodeIfPresent(String.self, forKey: .originalTitle) ?? ""
+        summary       = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        coverURL      = try c.decodeIfPresent(String.self, forKey: .coverURL) ?? ""
+        totalEpisodes = try c.decodeIfPresent(Int.self, forKey: .totalEpisodes) ?? 0
+        watchedEpisodes = try c.decodeIfPresent(Int.self, forKey: .watchedEpisodes) ?? 0
+        status        = try c.decodeIfPresent(WatchStatus.self, forKey: .status) ?? .planToWatch
+        score         = try c.decodeIfPresent(Int.self, forKey: .score) ?? 0
+        genres        = try c.decodeIfPresent([String].self, forKey: .genres) ?? []
+        notes         = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        isFavorite    = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        year          = try c.decodeIfPresent(Int.self, forKey: .year) ?? 0
+        createdAt     = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt     = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+    }
+
+    init(title: String = "", originalTitle: String = "", summary: String = "",
+         coverURL: String = "", totalEpisodes: Int = 0, watchedEpisodes: Int = 0,
+         status: WatchStatus = .planToWatch, score: Int = 0, genres: [String] = [],
+         notes: String = "", isFavorite: Bool = false, year: Int = 0) {
+        self.title = title
+        self.originalTitle = originalTitle
+        self.summary = summary
+        self.coverURL = coverURL
+        self.totalEpisodes = totalEpisodes
+        self.watchedEpisodes = watchedEpisodes
+        self.status = status
+        self.score = score
+        self.genres = genres
+        self.notes = notes
+        self.isFavorite = isFavorite
+        self.year = year
+    }
+
     var displayTitle: String {
         title.trimmingCharacters(in: .whitespaces).isEmpty ? originalTitle : title
     }

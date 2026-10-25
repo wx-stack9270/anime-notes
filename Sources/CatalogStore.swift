@@ -28,6 +28,45 @@ struct CatalogEntry: Identifiable, Codable, Hashable {
     /// 放送状态：1 在播 / 2 完结 / 3 未定档（Bangumi 原始值），0 表示未知
     var airStatus: Int = 0
 
+    // 自定义解码：所有字段 decodeIfPresent，兼容不含新增字段的旧 catalog.json。
+    // 合成 Codable 会因缺少键而整库解码失败（番剧库显示为空的根因）。
+    init(id: Int, title: String, originalTitle: String, coverURL: String,
+         summary: String, airDate: String, totalEpisodes: Int,
+         genres: [String], rank: Int,
+         rating: Double = 0, ratingCount: Int = 0,
+         airWeekday: Int = 0, airStatus: Int = 0) {
+        self.id = id
+        self.title = title
+        self.originalTitle = originalTitle
+        self.coverURL = coverURL
+        self.summary = summary
+        self.airDate = airDate
+        self.totalEpisodes = totalEpisodes
+        self.genres = genres
+        self.rank = rank
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.airWeekday = airWeekday
+        self.airStatus = airStatus
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id              = try c.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        title           = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        originalTitle   = try c.decodeIfPresent(String.self, forKey: .originalTitle) ?? ""
+        coverURL        = try c.decodeIfPresent(String.self, forKey: .coverURL) ?? ""
+        summary         = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        airDate         = try c.decodeIfPresent(String.self, forKey: .airDate) ?? ""
+        totalEpisodes   = try c.decodeIfPresent(Int.self, forKey: .totalEpisodes) ?? 0
+        genres          = try c.decodeIfPresent([String].self, forKey: .genres) ?? []
+        rank            = try c.decodeIfPresent(Int.self, forKey: .rank) ?? 0
+        rating          = try c.decodeIfPresent(Double.self, forKey: .rating) ?? 0
+        ratingCount     = try c.decodeIfPresent(Int.self, forKey: .ratingCount) ?? 0
+        airWeekday      = try c.decodeIfPresent(Int.self, forKey: .airWeekday) ?? 0
+        airStatus       = try c.decodeIfPresent(Int.self, forKey: .airStatus) ?? 0
+    }
+
     var weekdayText: String {
         let names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
         guard airWeekday >= 1 && airWeekday <= 7 else { return "" }
